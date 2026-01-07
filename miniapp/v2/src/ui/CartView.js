@@ -11,7 +11,7 @@ export function renderCart() {
   const items = Object.keys(state.cart);
 
   if (!items.length) {
-    content.innerHTML = '<p>Кошик порожній</p>';
+    content.innerHTML = '<p style="padding:16px">Кошик порожній</p>';
     renderBackButton(content);
     return;
   }
@@ -24,16 +24,20 @@ export function renderCart() {
     row.className = 'cart-item';
 
     row.innerHTML = `
-      <strong>${product.name}</strong><br />
-      <small>${product.weight}</small>
+      <div class="cart-row">
+        <div class="cart-info">
+          <strong>${product.name}</strong><br />
+          <small>${product.weight}</small>
+        </div>
 
-      <div class="controls">
-        <button>-</button>
-        <input type="number" value="${qty}" />
-        <button>+</button>
+        <div class="controls">
+          <button>-</button>
+          <input type="number" value="${qty}" />
+          <button>+</button>
+        </div>
       </div>
 
-      <button class="remove-btn">Видалити</button>
+      <button class="remove-btn">Видалити позицію</button>
     `;
 
     const buttons = row.querySelectorAll('button');
@@ -51,42 +55,4 @@ export function renderCart() {
     content.appendChild(row);
   });
 
-  const textarea = document.createElement('textarea');
-  textarea.placeholder = 'Коментар до замовлення (необовʼязково)';
-  textarea.value = state.comment;
-  textarea.onchange = e => state.comment = e.target.value;
-  content.appendChild(textarea);
-
-  const submit = document.createElement('div');
-  submit.className = 'button';
-  submit.textContent = 'Оформити замовлення';
-  submit.onclick = submitOrder;
-  content.appendChild(submit);
-
-  renderBackButton(content);
-}
-
-/* =========================
-   Helpers
-========================= */
-
-function updateQty(id, qty) {
-  if (qty <= 0) delete state.cart[id];
-  else state.cart[id] = qty;
-  renderScreen();
-}
-
-function renderBackButton(root) {
-  const back = document.createElement('div');
-  back.className = 'button back';
-  back.textContent = 'Повернутись до каталогу';
-  back.onclick = () => {
-    setState({ screen: 'catalog' });
-    renderScreen();
-  };
-  root.appendChild(back);
-}
-
-function submitOrder() {
-  alert('На цьому етапі відправку ще не підʼєднано 🙂');
-}
+  const
