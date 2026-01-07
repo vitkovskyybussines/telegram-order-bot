@@ -40,8 +40,8 @@ export function renderCart() {
       <button class="remove-btn">Видалити позицію</button>
     `;
 
-    const buttons = row.querySelectorAll('button');
-    const input = row.querySelector('input');
+    const buttons = row.querySelectorAll('.controls button');
+    const input = row.querySelector('.controls input');
 
     buttons[0].onclick = () => updateQty(id, qty - 1);
     buttons[1].onclick = () => updateQty(id, qty + 1);
@@ -55,4 +55,36 @@ export function renderCart() {
     content.appendChild(row);
   });
 
-  const
+  const textarea = document.createElement('textarea');
+  textarea.placeholder = 'Коментар до замовлення (необовʼязково)';
+  textarea.value = state.comment;
+  textarea.onchange = e => state.comment = e.target.value;
+  content.appendChild(textarea);
+
+  const submit = document.createElement('div');
+  submit.className = 'button';
+  submit.textContent = 'Оформити замовлення';
+  submit.onclick = () => alert('Далі підʼєднаємо Telegram 🙂');
+  content.appendChild(submit);
+
+  renderBackButton(content);
+}
+
+/* ========================= */
+
+function updateQty(id, qty) {
+  if (qty <= 0) delete state.cart[id];
+  else state.cart[id] = qty;
+  renderScreen();
+}
+
+function renderBackButton(root) {
+  const back = document.createElement('div');
+  back.className = 'button back';
+  back.textContent = 'Повернутись до каталогу';
+  back.onclick = () => {
+    setState({ screen: 'catalog', scrollY: 0 });
+    renderScreen();
+  };
+  root.appendChild(back);
+}
