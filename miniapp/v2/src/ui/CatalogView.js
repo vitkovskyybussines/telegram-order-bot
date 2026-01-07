@@ -8,13 +8,19 @@ export function renderCatalog() {
   const content = document.getElementById('content');
   content.innerHTML = '';
 
-  renderCategories(content);
+  const categoriesEl = renderCategories(content);
   renderProducts(content);
   renderCartButton(content);
 
   requestAnimationFrame(() => {
+    // vertical scroll
     if (state.scrollY) {
       window.scrollTo(0, state.scrollY);
+    }
+
+    // horizontal categories scroll
+    if (categoriesEl && state.categoriesScrollX) {
+      categoriesEl.scrollLeft = state.categoriesScrollX;
     }
   });
 }
@@ -35,7 +41,8 @@ function renderCategories(root) {
     el.onclick = () => {
       setState({
         activeCategory: c.id,
-        scrollY: window.scrollY
+        scrollY: window.scrollY,
+        categoriesScrollX: wrap.scrollLeft
       });
       renderScreen();
     };
@@ -44,6 +51,7 @@ function renderCategories(root) {
   });
 
   root.appendChild(wrap);
+  return wrap; // 👈 ПОВЕРТАЄМО ДЛЯ SCROLL
 }
 
 /* =========================
@@ -78,7 +86,7 @@ function renderProducts(root) {
 
     row.querySelector('.thumb').onclick =
     row.querySelector('.product-info').onclick = () => {
-      setState({ screen: 'product', currentProduct: p });
+      setState({ screen: 'product', currentProduct: p, scrollY: window.scrollY });
       renderScreen();
     };
 
@@ -105,16 +113,14 @@ function renderCartButton(root) {
   btn.className = 'button';
   btn.textContent = `Перейти до замовлення — ${count} позицій`;
   btn.onclick = () => {
-    setState({ screen: 'cart', scrollY: 0 });
+    setState({ screen: 'cart', scrollY: 0, categoriesScrollX: 0 });
     renderScreen();
   };
 
   root.appendChild(btn);
 }
 
-/* =========================
-   Helpers
-========================= */
+/* ========================= */
 
 function updateQty(id, qty) {
   if (qty <= 0) delete state.cart[id];
