@@ -1,4 +1,3 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -143,8 +142,23 @@ bot.onText(/\/start/, msg => {
 
   const store = getStore(userId);
 
+  // ✅ ЗМІНА 1: кнопка відкриття Mini App
   if (!store) {
-    bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', startKeyboard);
+    bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', {
+      reply_markup: {
+        keyboard: [
+          [{
+            text: '🛒 Зробити замовлення',
+            web_app: {
+              url: 'https://vitkovskyybussines.github.io/telegram-order-bot/miniapp/v2/'
+            }
+          }],
+          ['🔐 Авторизуватись'],
+          ['📞 Звʼязок з менеджером']
+        ],
+        resize_keyboard: true
+      }
+    });
     return;
   }
 
@@ -249,10 +263,21 @@ bot.on('web_app_data', msg => {
 
     if (!payload.initData || !isValidInitData(payload.initData)) return;
 
+    // ✅ ЗМІНА 2: захист від порожнього кошика
+    if (!payload.items || !payload.items.length) {
+      bot.sendMessage(userId, '❌ Порожнє замовлення');
+      return;
+    }
+
     let text = 'Замовлення з каталогу:\n\n';
     payload.items.forEach(i => {
       text += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
     });
+
+    // ✅ ЗМІНА 3: коментар з Mini App
+    if (payload.comment) {
+      text += `\n💬 Коментар:\n${payload.comment}`;
+    }
 
     createRequest(userId, store.storeCode, text);
   } catch {}
