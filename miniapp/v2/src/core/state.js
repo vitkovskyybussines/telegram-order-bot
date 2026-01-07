@@ -7,6 +7,7 @@ export const state = {
   cart: {},
   comment: '',
   scrollY: 0
+  categoriesScrollX: 0
 };
 
 export function setState(patch) {
