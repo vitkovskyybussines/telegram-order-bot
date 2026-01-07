@@ -64,7 +64,32 @@ export function renderCart() {
   const submit = document.createElement('div');
   submit.className = 'button';
   submit.textContent = 'Оформити замовлення';
-  submit.onclick = () => alert('Далі підʼєднаємо Telegram 🙂');
+
+  // 🔽 ЄДИНА НОВА ЛОГІКА
+  submit.onclick = () => {
+    const tg = window.Telegram.WebApp;
+
+    const items = Object.keys(state.cart).map(id => {
+      const product = products.find(p => p.id == id);
+      return {
+        id: product.id,
+        name: product.name,
+        weight: product.weight,
+        qty: state.cart[id]
+      };
+    });
+
+    const payload = {
+      items,
+      comment: state.comment,
+      timestamp: Date.now(),
+      initData: tg.initData
+    };
+
+    tg.sendData(JSON.stringify(payload));
+    tg.close();
+  };
+
   content.appendChild(submit);
 
   renderBackButton(content);
