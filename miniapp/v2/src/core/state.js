@@ -1,3 +1,5 @@
+// miniapp/v2/src/core/state.js
+
 export const state = {
   screen: 'catalog',
   activeCategory: 'all',
@@ -5,3 +7,7 @@ export const state = {
   cart: {},
   comment: ''
 };
+
+export function setState(patch) {
+  Object.assign(state, patch);
+}
