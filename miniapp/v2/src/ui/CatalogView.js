@@ -13,14 +13,18 @@ export function renderCatalog() {
   renderCartButton(content);
 
   requestAnimationFrame(() => {
-    // vertical scroll
     if (state.scrollY) {
       window.scrollTo(0, state.scrollY);
     }
 
-    // horizontal categories scroll
-    if (categoriesEl && state.categoriesScrollX) {
-      categoriesEl.scrollLeft = state.categoriesScrollX;
+    // ✅ ФІНАЛЬНИЙ ФІКС
+    const active = categoriesEl.querySelector('.category.active');
+    if (active) {
+      active.scrollIntoView({
+        behavior: 'auto',
+        inline: 'center',
+        block: 'nearest'
+      });
     }
   });
 }
@@ -41,8 +45,7 @@ function renderCategories(root) {
     el.onclick = () => {
       setState({
         activeCategory: c.id,
-        scrollY: window.scrollY,
-        categoriesScrollX: wrap.scrollLeft
+        scrollY: window.scrollY
       });
       renderScreen();
     };
@@ -51,7 +54,7 @@ function renderCategories(root) {
   });
 
   root.appendChild(wrap);
-  return wrap; // 👈 ПОВЕРТАЄМО ДЛЯ SCROLL
+  return wrap;
 }
 
 /* =========================
@@ -101,9 +104,7 @@ function renderProducts(root) {
   });
 }
 
-/* =========================
-   Cart Button
-========================= */
+/* ========================= */
 
 function renderCartButton(root) {
   const count = Object.keys(state.cart).length;
@@ -113,14 +114,12 @@ function renderCartButton(root) {
   btn.className = 'button';
   btn.textContent = `Перейти до замовлення — ${count} позицій`;
   btn.onclick = () => {
-    setState({ screen: 'cart', scrollY: 0, categoriesScrollX: 0 });
+    setState({ screen: 'cart', scrollY: 0 });
     renderScreen();
   };
 
   root.appendChild(btn);
 }
-
-/* ========================= */
 
 function updateQty(id, qty) {
   if (qty <= 0) delete state.cart[id];
