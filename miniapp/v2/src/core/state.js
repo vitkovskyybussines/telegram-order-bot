@@ -5,7 +5,8 @@ export const state = {
   activeCategory: 'all',
   currentProduct: null,
   cart: {},
-  comment: ''
+  comment: '',
+  scrollY: 0
 };
 
 export function setState(patch) {
