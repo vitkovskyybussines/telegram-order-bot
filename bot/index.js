@@ -143,7 +143,6 @@ bot.onText(/\/start/, msg => {
 
   const store = getStore(userId);
 
-  // ✅ ЄДИНА ПРАВКА ТУТ
   if (!store) {
     bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', startKeyboard);
     return;
@@ -164,6 +163,40 @@ bot.on('message', msg => {
   try {
     const userId = msg.from.id;
     const text = msg.text;
+
+    // ✅ Mini App data (Menu Button compatible)
+    if (msg.web_app_data && msg.web_app_data.data) {
+      try {
+        const payload = JSON.parse(msg.web_app_data.data);
+
+        const store = getStore(userId);
+        if (!store || !store.approved) {
+          bot.sendMessage(userId, '❌ Магазин не авторизований');
+          return;
+        }
+
+        if (!payload.items || !payload.items.length) {
+          bot.sendMessage(userId, '❌ Порожнє замовлення');
+          return;
+        }
+
+        let textOrder = 'Замовлення з каталогу:\n\n';
+        payload.items.forEach(i => {
+          textOrder += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
+        });
+
+        if (payload.comment) {
+          textOrder += `\n💬 Коментар:\n${payload.comment}`;
+        }
+
+        createRequest(userId, store.storeCode, textOrder);
+        return;
+      } catch {
+        bot.sendMessage(userId, '❌ Помилка обробки замовлення');
+        return;
+      }
+    }
+
     if (!text || text.startsWith('/')) return;
 
     if (text === '🔐 Авторизуватись') {
