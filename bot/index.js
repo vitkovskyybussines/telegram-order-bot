@@ -148,12 +148,6 @@ bot.onText(/\/start/, msg => {
     bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', {
       reply_markup: {
         keyboard: [
-          [{
-            text: '🛒 Зробити замовлення',
-            web_app: {
-              url: 'https://vitkovskyybussines.github.io/telegram-order-bot/miniapp/v2/'
-            }
-          }],
           ['🔐 Авторизуватись'],
           ['📞 Звʼязок з менеджером']
         ],
