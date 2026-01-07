@@ -1,10 +1,7 @@
 export const state = {
   screen: 'catalog',
+  activeCategory: 'all',
   currentProduct: null,
   cart: {},
   comment: ''
 };
-
-export function setState(patch) {
-  Object.assign(state, patch);
-}
