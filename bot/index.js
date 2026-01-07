@@ -55,6 +55,32 @@ function today() {
 }
 
 /* =========================
+   Mini App Menu Button
+========================= */
+
+function showMiniAppButton(userId) {
+  bot.setChatMenuButton({
+    chat_id: userId,
+    menu_button: {
+      type: 'web_app',
+      text: '🛒 Зробити замовлення',
+      web_app: {
+        url: 'https://vitkovskyybussines.github.io/telegram-order-bot/miniapp/v2/'
+      }
+    }
+  });
+}
+
+function hideMiniAppButton(userId) {
+  bot.setChatMenuButton({
+    chat_id: userId,
+    menu_button: {
+      type: 'default'
+    }
+  });
+}
+
+/* =========================
    initData validation
 ========================= */
 
@@ -137,6 +163,7 @@ bot.onText(/\/start/, msg => {
   const userId = msg.from.id;
 
   if (userId === MANAGER_ID) {
+    hideMiniAppButton(userId);
     bot.sendMessage(userId, 'Панель менеджера', managerKeyboard);
     return;
   }
@@ -144,13 +171,16 @@ bot.onText(/\/start/, msg => {
   const store = getStore(userId);
 
   if (!store) {
+    hideMiniAppButton(userId);
     bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', startKeyboard);
     return;
   }
 
   if (store.approved) {
+    showMiniAppButton(userId);
     bot.sendMessage(userId, `Ви авторизовані як ${store.storeCode}`, storeKeyboard);
   } else {
+    hideMiniAppButton(userId);
     bot.sendMessage(userId, 'Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
   }
 });
@@ -164,37 +194,25 @@ bot.on('message', msg => {
     const userId = msg.from.id;
     const text = msg.text;
 
-    // ✅ Mini App data (Menu Button compatible)
     if (msg.web_app_data && msg.web_app_data.data) {
-      try {
-        const payload = JSON.parse(msg.web_app_data.data);
+      const payload = JSON.parse(msg.web_app_data.data);
 
-        const store = getStore(userId);
-        if (!store || !store.approved) {
-          bot.sendMessage(userId, '❌ Магазин не авторизований');
-          return;
-        }
+      const store = getStore(userId);
+      if (!store || !store.approved) return;
 
-        if (!payload.items || !payload.items.length) {
-          bot.sendMessage(userId, '❌ Порожнє замовлення');
-          return;
-        }
+      if (!payload.items || !payload.items.length) return;
 
-        let textOrder = 'Замовлення з каталогу:\n\n';
-        payload.items.forEach(i => {
-          textOrder += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
-        });
+      let textOrder = 'Замовлення з каталогу:\n\n';
+      payload.items.forEach(i => {
+        textOrder += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
+      });
 
-        if (payload.comment) {
-          textOrder += `\n💬 Коментар:\n${payload.comment}`;
-        }
-
-        createRequest(userId, store.storeCode, textOrder);
-        return;
-      } catch {
-        bot.sendMessage(userId, '❌ Помилка обробки замовлення');
-        return;
+      if (payload.comment) {
+        textOrder += `\n💬 Коментар:\n${payload.comment}`;
       }
+
+      createRequest(userId, store.storeCode, textOrder);
+      return;
     }
 
     if (!text || text.startsWith('/')) return;
@@ -248,6 +266,7 @@ bot.on('message', msg => {
     }
 
     if (!store.approved) {
+      hideMiniAppButton(userId);
       bot.sendMessage(userId, 'Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
       return;
     }
@@ -266,44 +285,6 @@ bot.on('message', msg => {
     if (text === '📄 Мої заявки') {
       showMyRequests(userId);
     }
-  } catch {}
-});
-
-/* =========================
-   MINI APP DATA
-========================= */
-
-bot.on('web_app_data', msg => {
-  try {
-    const userId = msg.from.id;
-    const store = getStore(userId);
-    if (!store || !store.approved) return;
-
-    const payload = JSON.parse(msg.web_app_data.data);
-
-    if (!payload.initData || !isValidInitData(payload.initData)) return;
-
-    if (userId !== store.userId) {
-      bot.sendMessage(userId, '❌ Помилка доступу');
-      return;
-    }
-
-    if (!payload.items || !payload.items.length) {
-      bot.sendMessage(userId, '❌ Порожнє замовлення');
-      return;
-    }
-
-    let text = 'Замовлення з каталогу:\n\n';
-    payload.items.forEach(i => {
-      text += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
-    });
-
-    if (payload.comment) {
-      text += `\n💬 Коментар:\n${payload.comment}`;
-    }
-
-    createRequest(userId, store.storeCode, text);
-
   } catch {}
 });
 
@@ -334,20 +315,9 @@ function createRequest(userId, storeCode, text) {
 function sendRequestToManager(req) {
   bot.sendMessage(
     MANAGER_ID,
-    `🆕 Заявка №${req.id}\n${req.storeCode}\n\n${req.text}\nСтатус: Очікує підтвердження`,
-    {
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '📥 Отримана', callback_data: `status_received_${req.id}` }
-        ]]
-      }
-    }
+    `🆕 Заявка №${req.id}\n${req.storeCode}\n\n${req.text}\nСтатус: Очікує підтвердження`
   );
 }
-
-/* =========================
-   Views
-========================= */
 
 function showMyRequests(userId) {
   const requests = readJson(REQUESTS_FILE).filter(r => r.userId === userId);
@@ -390,50 +360,13 @@ bot.on('callback_query', q => {
       if (action === 'accept') {
         stores.push({ userId, storeCode, approved: true });
         writeJson(STORES_FILE, stores);
+        showMiniAppButton(userId);
         bot.sendMessage(userId, '✅ Авторизацію підтверджено', storeKeyboard);
       } else {
         stores.push({ userId, storeCode, approved: false });
         writeJson(STORES_FILE, stores);
+        hideMiniAppButton(userId);
         bot.sendMessage(userId, '❌ Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
-      }
-
-      bot.editMessageReplyMarkup({}, { chat_id: msg.chat.id, message_id: msg.message_id });
-      bot.answerCallbackQuery(q.id);
-      return;
-    }
-
-    if (data.startsWith('status_')) {
-      const [, newStatus, idStr] = data.split('_');
-      const id = Number(idStr);
-
-      const requests = readJson(REQUESTS_FILE);
-      const req = requests.find(r => r.id === id);
-      if (!req) return;
-
-      if (newStatus === 'received' && req.status === 'pending') {
-        req.status = 'received';
-        writeJson(REQUESTS_FILE, requests);
-
-        bot.sendMessage(req.userId, `📦 Заявка №${id}\nСтатус: Прийнято в роботу`);
-
-        bot.editMessageReplyMarkup(
-          { inline_keyboard: [[{ text: '⚙️ Оброблена', callback_data: `status_processed_${id}` }]] },
-          { chat_id: msg.chat.id, message_id: msg.message_id }
-        );
-
-        bot.answerCallbackQuery(q.id);
-        return;
-      }
-
-      if (newStatus === 'processed' && req.status === 'received') {
-        req.status = 'processed';
-        writeJson(REQUESTS_FILE, requests);
-
-        bot.sendMessage(req.userId, `✅ Заявка №${id}\nСтатус: Виконано`);
-
-        bot.editMessageReplyMarkup({}, { chat_id: msg.chat.id, message_id: msg.message_id });
-        bot.answerCallbackQuery(q.id);
-        return;
       }
 
       bot.editMessageReplyMarkup({}, { chat_id: msg.chat.id, message_id: msg.message_id });
