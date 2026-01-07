@@ -142,7 +142,7 @@ bot.onText(/\/start/, msg => {
 
   const store = getStore(userId);
 
-  // ✅ ЗМІНА 1: кнопка відкриття Mini App
+  // ✅ ДОДАНО: WebApp кнопка (привʼязка Mini App)
   if (!store) {
     bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', {
       reply_markup: {
@@ -263,7 +263,12 @@ bot.on('web_app_data', msg => {
 
     if (!payload.initData || !isValidInitData(payload.initData)) return;
 
-    // ✅ ЗМІНА 2: захист від порожнього кошика
+    // ✅ ДОДАНО: жорстка привʼязка Mini App → магазин
+    if (userId !== store.userId) {
+      bot.sendMessage(userId, '❌ Помилка доступу');
+      return;
+    }
+
     if (!payload.items || !payload.items.length) {
       bot.sendMessage(userId, '❌ Порожнє замовлення');
       return;
@@ -274,12 +279,14 @@ bot.on('web_app_data', msg => {
       text += `• ${i.name} (${i.weight}) × ${i.qty}\n`;
     });
 
-    // ✅ ЗМІНА 3: коментар з Mini App
     if (payload.comment) {
       text += `\n💬 Коментар:\n${payload.comment}`;
     }
 
-    createRequest(userId, store.storeCode, text);
+    // ✅ ДОДАНО: явний store context
+    const storeCode = store.storeCode;
+    createRequest(userId, storeCode, text);
+
   } catch {}
 });
 
