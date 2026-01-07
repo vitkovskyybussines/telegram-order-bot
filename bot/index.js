@@ -104,7 +104,7 @@ const storeKeyboard = {
   reply_markup: {
     keyboard: [
       ['➕ Створити заявку'],
-      ['📄 Мої заявки']
+      ['📄 Мої заявки'],
       ['📞 Звʼязок з менеджером']
     ],
     resize_keyboard: true
@@ -143,17 +143,9 @@ bot.onText(/\/start/, msg => {
 
   const store = getStore(userId);
 
-  // ✅ ДОДАНО: WebApp кнопка (привʼязка Mini App)
+  // ✅ ЄДИНА ПРАВКА ТУТ
   if (!store) {
-    bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', {
-      reply_markup: {
-        keyboard: [
-          ['🔐 Авторизуватись'],
-          ['📞 Звʼязок з менеджером']
-        ],
-        resize_keyboard: true
-      }
-    });
+    bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', startKeyboard);
     return;
   }
 
@@ -258,7 +250,6 @@ bot.on('web_app_data', msg => {
 
     if (!payload.initData || !isValidInitData(payload.initData)) return;
 
-    // ✅ ДОДАНО: жорстка привʼязка Mini App → магазин
     if (userId !== store.userId) {
       bot.sendMessage(userId, '❌ Помилка доступу');
       return;
@@ -278,9 +269,7 @@ bot.on('web_app_data', msg => {
       text += `\n💬 Коментар:\n${payload.comment}`;
     }
 
-    // ✅ ДОДАНО: явний store context
-    const storeCode = store.storeCode;
-    createRequest(userId, storeCode, text);
+    createRequest(userId, store.storeCode, text);
 
   } catch {}
 });
