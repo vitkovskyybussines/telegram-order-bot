@@ -6,10 +6,17 @@ import { products, categories } from '../services/products.js';
 
 export function renderCatalog() {
   const content = document.getElementById('content');
+  content.innerHTML = '';
 
   renderCategories(content);
   renderProducts(content);
   renderCartButton(content);
+
+  requestAnimationFrame(() => {
+    if (state.scrollY) {
+      window.scrollTo(0, state.scrollY);
+    }
+  });
 }
 
 /* =========================
@@ -26,7 +33,10 @@ function renderCategories(root) {
     el.textContent = c.name;
 
     el.onclick = () => {
-      setState({ activeCategory: c.id });
+      setState({
+        activeCategory: c.id,
+        scrollY: window.scrollY
+      });
       renderScreen();
     };
 
@@ -72,11 +82,11 @@ function renderProducts(root) {
       renderScreen();
     };
 
-    const [minus, input, plus] =
-      row.querySelectorAll('.controls button, .controls input');
+    const buttons = row.querySelectorAll('button');
+    const input = row.querySelector('input');
 
-    minus.onclick = () => updateQty(p.id, qty - 1);
-    plus.onclick = () => updateQty(p.id, qty + 1);
+    buttons[0].onclick = () => updateQty(p.id, qty - 1);
+    buttons[1].onclick = () => updateQty(p.id, qty + 1);
     input.onchange = e => updateQty(p.id, Number(e.target.value));
 
     root.appendChild(row);
@@ -95,7 +105,7 @@ function renderCartButton(root) {
   btn.className = 'button';
   btn.textContent = `Перейти до замовлення — ${count} позицій`;
   btn.onclick = () => {
-    setState({ screen: 'cart' });
+    setState({ screen: 'cart', scrollY: 0 });
     renderScreen();
   };
 
