@@ -1,299 +1,365 @@
-const tg = window.Telegram.WebApp;
-tg.expand();
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const crypto = require('crypto');
 
-const categories = [
-  'Вся продукція',
-  'Сосиски та сардельки',
-  'Варені ковбаси',
-  'Мʼясні делікатеси'
-];
+const TOKEN = process.env.BOT_TOKEN;
+const MANAGER_ID = Number(process.env.MANAGER_ID);
+const MANAGER_USERNAME = 'OlegVitkovskyy';
 
-const products = [
-  {
-    id: 1,
-    name: 'Баварські сардельки',
-    weight: '500г',
-    category: 'Сосиски та сардельки',
-    image: 'https://via.placeholder.com/300',
-    description: 'Соковиті сардельки',
-    composition: 'Свинина'
-  },
-  {
-    id: 2,
-    name: 'Сосиски молочні',
-    weight: '400г',
-    category: 'Сосиски та сардельки',
-    image: 'https://via.placeholder.com/300',
-    description: 'Ніжні молочні сосиски',
-    composition: 'Свинина, молоко'
-  },
-  {
-    id: 3,
-    name: 'Докторська',
-    weight: '700г',
-    category: 'Варені ковбаси',
-    image: 'https://via.placeholder.com/300',
-    description: 'Класична варена ковбаса',
-    composition: 'Свинина'
-  },
-  {
-    id: 4,
-    name: 'Бекон',
-    weight: '100г',
-    category: 'Мʼясні делікатеси',
-    image: 'https://via.placeholder.com/300',
-    description: 'Ароматний бекон',
-    composition: 'Свинина'
-  }
-];
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-let cart = {};
-let screen = 'catalog';
-let activeCategory = 'Вся продукція';
-let currentProduct = null;
-let comment = '';
+const STORES_FILE = './stores.json';
+const REQUESTS_FILE = './requests.json';
 
-const categoriesEl = document.getElementById('categories');
-const contentEl = document.getElementById('content');
-const titleEl = document.getElementById('title');
+const SHOP_CODE_REGEX = /^SHOP-\d+$/;
 
-function render() {
-  categoriesEl.style.display = screen === 'catalog' ? 'flex' : 'none';
-  contentEl.className = 'fade';
+let awaitingRequestText = {};
+let awaitingAuth = {};
 
-  if (screen === 'catalog') renderCatalog();
-  if (screen === 'product') renderProduct();
-  if (screen === 'cart') renderCart();
-}
+/* =========================
+   Utils
+========================= */
 
-/* ======================
-   CATALOG
-====================== */
-
-function renderCatalog() {
-  titleEl.textContent = 'Зробити замовлення';
-  categoriesEl.innerHTML = '';
-  contentEl.innerHTML = '';
-
-  categories.forEach(c => {
-    const el = document.createElement('div');
-    el.className = 'category' + (c === activeCategory ? ' active' : '');
-    el.textContent = c;
-    el.onclick = () => {
-      activeCategory = c;
-      render();
-    };
-    categoriesEl.appendChild(el);
-  });
-
-  const list = activeCategory === 'Вся продукція'
-    ? products
-    : products.filter(p => p.category === activeCategory);
-
-  list.forEach(p => {
-    const qty = cart[p.id] || 0;
-
-    const row = document.createElement('div');
-    row.className = 'product';
-
-    row.innerHTML = `
-      <div class="product-row">
-        <img src="${p.image}" class="thumb">
-        <div class="product-info">
-          <strong>${p.name}</strong><br>
-          <small>${p.weight}</small>
-        </div>
-        <div class="controls">
-          <button>-</button>
-          <input type="number" value="${qty}">
-          <button>+</button>
-        </div>
-      </div>
-    `;
-
-    row.querySelector('.thumb').onclick =
-    row.querySelector('.product-info').onclick = () => {
-      currentProduct = p;
-      screen = 'product';
-      render();
-    };
-
-    const [minus, input, plus] = row.querySelectorAll('.controls button, .controls input');
-    minus.onclick = () => updateQty(p.id, qty - 1);
-    plus.onclick = () => updateQty(p.id, qty + 1);
-    input.onchange = e => updateQty(p.id, Number(e.target.value));
-
-    contentEl.appendChild(row);
-  });
-
-  if (Object.keys(cart).length > 0) {
-    const info = document.createElement('div');
-    info.style.padding = '12px';
-    info.textContent = `Позицій у кошику: ${Object.keys(cart).length}`;
-    contentEl.appendChild(info);
-
-    const btn = document.createElement('div');
-    btn.className = 'button';
-    btn.textContent = 'Перейти до кошика';
-    btn.onclick = () => {
-      screen = 'cart';
-      render();
-    };
-    contentEl.appendChild(btn);
+function readJson(path) {
+  try {
+    if (!fs.existsSync(path)) return [];
+    return JSON.parse(fs.readFileSync(path, 'utf8') || '[]');
+  } catch {
+    return [];
   }
 }
 
-/* ======================
-   PRODUCT
-====================== */
+function writeJson(path, data) {
+  try {
+    fs.writeFileSync(path, JSON.stringify(data, null, 2));
+  } catch {}
+}
 
-function renderProduct() {
-  const p = currentProduct;
-  let qty = cart[p.id] || 0;
-  const alreadyAdded = qty > 0;
+function getStore(userId) {
+  return readJson(STORES_FILE).find(s => s.userId === userId);
+}
 
-  titleEl.textContent = p.name;
-  contentEl.innerHTML = `
-    <div class="product">
-      <img src="${p.image}" style="width:100%;border-radius:12px">
-      <h3>${p.name}</h3>
-      <p>${p.description}</p>
-      <p><strong>Склад:</strong> ${p.composition}</p>
+function nextRequestId(requests) {
+  return requests.length ? Math.max(...requests.map(r => r.id)) + 1 : 1;
+}
 
-      <div style="display:flex; gap:10px; align-items:center;">
-        <div class="controls">
-          <button id="minus">-</button>
-          <input id="qty" type="number" value="${qty}">
-          <button id="plus">+</button>
-        </div>
+function statusText(status) {
+  if (status === 'pending') return 'Очікує підтвердження';
+  if (status === 'received') return 'Прийнято в роботу';
+  if (status === 'processed') return 'Виконано';
+  return status;
+}
 
-        <div
-          class="button"
-          id="add"
-          style="flex:1; height:44px; display:flex; align-items:center; justify-content:center;"
-        >
-          ${alreadyAdded ? '✓ Додано' : 'Додати в кошик'}
-        </div>
-      </div>
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-      <div class="button back" id="back">Повернутись до каталогу</div>
-    </div>
-  `;
+/* =========================
+   initData validation
+========================= */
 
-  const qtyInput = document.getElementById('qty');
-  const addBtn = document.getElementById('add');
+function isValidInitData(initData) {
+  try {
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    params.delete('hash');
 
-  document.getElementById('minus').onclick = () => {
-    qty = Math.max(0, qty - 1);
-    qtyInput.value = qty;
-  };
+    const dataCheckString = [...params.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
 
-  document.getElementById('plus').onclick = () => {
-    qty++;
-    qtyInput.value = qty;
-  };
+    const secretKey = crypto
+      .createHash('sha256')
+      .update(TOKEN)
+      .digest();
 
-  addBtn.onclick = () => {
-    if (qty > 0) {
-      cart[p.id] = qty;
-      addBtn.textContent = '✓ Додано';
+    const hmac = crypto
+      .createHmac('sha256', secretKey)
+      .update(dataCheckString)
+      .digest('hex');
+
+    return hmac === hash;
+  } catch {
+    return false;
+  }
+}
+
+/* =========================
+   Keyboards
+========================= */
+
+const startKeyboard = {
+  reply_markup: {
+    keyboard: [
+      ['🔐 Авторизуватись'],
+      ['📞 Звʼязок з менеджером']
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true
+  }
+};
+
+const storeKeyboard = {
+  reply_markup: {
+    keyboard: [
+      ['➕ Створити заявку'],
+      ['📄 Мої заявки'],
+      ['📞 Звʼязок з менеджером']
+    ],
+    resize_keyboard: true
+  }
+};
+
+const managerKeyboard = {
+  reply_markup: {
+    keyboard: [
+      ['📦 Всі заявки (сьогодні)'],
+      ['🟡 Очікують', '🔵 В роботі'],
+      ['🟢 Виконані (сьогодні)']
+    ],
+    resize_keyboard: true
+  }
+};
+
+const contactManagerKeyboard = {
+  reply_markup: {
+    keyboard: [['📞 Звʼязатися з менеджером']],
+    resize_keyboard: true
+  }
+};
+
+/* =========================
+   /start
+========================= */
+
+bot.onText(/\/start/, msg => {
+  const userId = msg.from.id;
+
+  if (userId === MANAGER_ID) {
+    bot.sendMessage(userId, 'Панель менеджера', managerKeyboard);
+    return;
+  }
+
+  const store = getStore(userId);
+
+  if (!store) {
+    bot.sendMessage(userId, '👋 Вітаємо! Оберіть дію:', startKeyboard);
+    return;
+  }
+
+  if (store.approved) {
+    bot.sendMessage(userId, `Ви авторизовані як ${store.storeCode}`, storeKeyboard);
+  } else {
+    bot.sendMessage(userId, 'Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
+  }
+});
+
+/* =========================
+   Messages
+========================= */
+
+bot.on('message', msg => {
+  try {
+    const userId = msg.from.id;
+    const text = msg.text;
+    if (!text || text.startsWith('/')) return;
+
+    if (text === '🔐 Авторизуватись') {
+      bot.sendMessage(userId, 'Введіть код магазину (SHOP-001)');
+      return;
     }
+
+    if (text === '📞 Звʼязок з менеджером') {
+      bot.sendMessage(userId, 'Звʼяжіться з менеджером:', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: 'Написати менеджеру', url: `https://t.me/${MANAGER_USERNAME}` }
+          ]]
+        }
+      });
+      return;
+    }
+
+    if (userId === MANAGER_ID) {
+      if (text === '📦 Всі заявки (сьогодні)') showManagerRequests(r => r.createdAt === today());
+      if (text === '🟡 Очікують') showManagerRequests(r => r.status === 'pending');
+      if (text === '🔵 В роботі') showManagerRequests(r => r.status === 'received');
+      if (text === '🟢 Виконані (сьогодні)') showManagerRequests(r => r.status === 'processed' && r.createdAt === today());
+      return;
+    }
+
+    const store = getStore(userId);
+
+    if (!store) {
+      if (SHOP_CODE_REGEX.test(text)) {
+        awaitingAuth[userId] = text;
+
+        bot.sendMessage(
+          MANAGER_ID,
+          `🔐 Запит авторизації\nМагазин: ${text}\nUser ID: ${userId}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '✅ Прийняти', callback_data: `auth_accept_${userId}` },
+                  { text: '❌ Відхилити', callback_data: `auth_reject_${userId}` }
+                ],
+                [
+                  { text: '✉️ Написати користувачу', url: `tg://user?id=${userId}` }
+                ]
+              ]
+            }
+          }
+        );
+
+        bot.sendMessage(userId, 'Запит на авторизацію надіслано менеджеру');
+      }
+      return;
+    }
+
+    if (!store.approved) {
+      bot.sendMessage(userId, 'Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
+      return;
+    }
+
+    if (awaitingRequestText[userId]) {
+      createRequest(userId, store.storeCode, text);
+      delete awaitingRequestText[userId];
+      return;
+    }
+
+    if (text === '➕ Створити заявку') {
+      awaitingRequestText[userId] = true;
+      bot.sendMessage(userId, 'Введіть текст заявки');
+    }
+
+    if (text === '📄 Мої заявки') {
+      showMyRequests(userId);
+    }
+  } catch {}
+});
+
+/* =========================
+   Requests
+========================= */
+
+function createRequest(userId, storeCode, text) {
+  const requests = readJson(REQUESTS_FILE);
+  const id = nextRequestId(requests);
+
+  const req = {
+    id,
+    userId,
+    storeCode,
+    text,
+    status: 'pending',
+    createdAt: today()
   };
 
-  document.getElementById('back').onclick = () => {
-    screen = 'catalog';
-    render();
-  };
+  requests.push(req);
+  writeJson(REQUESTS_FILE, requests);
+
+  bot.sendMessage(userId, `Заявка №${id} створена\nСтатус: Очікує підтвердження`);
+
+  bot.sendMessage(
+    MANAGER_ID,
+    `🆕 Заявка №${id}\n${storeCode}\n\n${text}\nСтатус: Очікує підтвердження`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📥 Отримана', callback_data: `status_received_${id}` }
+          ],
+          [
+            { text: '✉️ Написати користувачу', url: `tg://user?id=${userId}` }
+          ]
+        ]
+      }
+    }
+  );
 }
 
-/* ======================
-   CART
-====================== */
+/* =========================
+   Views
+========================= */
 
-function renderCart() {
-  titleEl.textContent = 'Кошик';
-  contentEl.innerHTML = '';
+function showMyRequests(userId) {
+  const requests = readJson(REQUESTS_FILE).filter(r => r.userId === userId);
+  if (!requests.length) return bot.sendMessage(userId, 'Заявок немає');
 
-  Object.keys(cart).forEach(id => {
-    const p = products.find(x => x.id == id);
-    const qty = cart[id];
-
-    const row = document.createElement('div');
-    row.className = 'cart-item';
-
-    row.innerHTML = `
-      <strong>${p.name}</strong><br>
-      <small>${p.weight}</small>
-
-      <div class="cart-row">
-        <div class="controls">
-          <button>-</button>
-          <input type="number" value="${qty}">
-          <button>+</button>
-        </div>
-        <button class="remove-btn">Видалити позицію</button>
-      </div>
-    `;
-
-    const [minus, input, plus] = row.querySelectorAll('.controls button, .controls input');
-    minus.onclick = () => updateQty(p.id, qty - 1);
-    plus.onclick = () => updateQty(p.id, qty + 1);
-    input.onchange = e => updateQty(p.id, Number(e.target.value));
-    row.querySelector('.remove-btn').onclick = () => {
-      delete cart[id];
-      render();
-    };
-
-    contentEl.appendChild(row);
-  });
-
-  const textarea = document.createElement('textarea');
-  textarea.placeholder = 'Коментар до замовлення (необовʼязково)';
-  textarea.value = comment;
-  textarea.onchange = e => comment = e.target.value;
-  contentEl.appendChild(textarea);
-
-  const submit = document.createElement('div');
-  submit.className = 'button';
-  submit.textContent = 'Оформити замовлення';
-  submit.onclick = submitOrder;
-  contentEl.appendChild(submit);
-
-  const back = document.createElement('div');
-  back.className = 'button back';
-  back.textContent = 'Повернутись до каталогу';
-  back.onclick = () => {
-    screen = 'catalog';
-    render();
-  };
-  contentEl.appendChild(back);
+  requests.forEach(r =>
+    bot.sendMessage(userId, `№${r.id}\nСтатус: ${statusText(r.status)}\n${r.text}`)
+  );
 }
 
-/* ======================
-   HELPERS
-====================== */
+function showManagerRequests(filterFn) {
+  const requests = readJson(REQUESTS_FILE).filter(filterFn);
+  if (!requests.length) return bot.sendMessage(MANAGER_ID, 'Заявок немає');
 
-function updateQty(id, qty) {
-  if (qty <= 0) delete cart[id];
-  else cart[id] = qty;
-  render();
+  requests.forEach(r =>
+    bot.sendMessage(
+      MANAGER_ID,
+      `№${r.id}\n${r.storeCode}\nСтатус: ${statusText(r.status)}\n${r.text}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✉️ Написати користувачу', url: `tg://user?id=${r.userId}` }
+          ]]
+        }
+      }
+    )
+  );
 }
 
-function submitOrder() {
-  if (!confirm('Підтвердити замовлення?')) return;
+/* =========================
+   Callbacks
+========================= */
 
-  const items = Object.keys(cart).map(id => {
-    const p = products.find(x => x.id == id);
-    return {
-      name: p.name,
-      weight: p.weight,
-      qty: cart[id]
-    };
-  });
+bot.on('callback_query', q => {
+  try {
+    const data = q.data;
+    const msg = q.message;
 
-  tg.sendData(JSON.stringify({ items, comment }));
-  cart = {};
-  tg.close();
-}
+    if (data.startsWith('auth_')) {
+      const [, action, userIdStr] = data.split('_');
+      const userId = Number(userIdStr);
+      const storeCode = awaitingAuth[userId];
+      delete awaitingAuth[userId];
 
-render();
+      const stores = readJson(STORES_FILE);
+
+      if (action === 'accept') {
+        stores.push({ userId, storeCode, approved: true });
+        writeJson(STORES_FILE, stores);
+        bot.sendMessage(userId, '✅ Авторизацію підтверджено', storeKeyboard);
+      } else {
+        stores.push({ userId, storeCode, approved: false });
+        writeJson(STORES_FILE, stores);
+        bot.sendMessage(userId, '❌ Доступ заборонено. Зверніться до менеджера.', contactManagerKeyboard);
+      }
+
+      bot.editMessageReplyMarkup({}, { chat_id: msg.chat.id, message_id: msg.message_id });
+      bot.answerCallbackQuery(q.id);
+      return;
+    }
+
+    if (data.startsWith('status_')) {
+      const [, newStatus, idStr] = data.split('_');
+      const id = Number(idStr);
+
+      const requests = readJson(REQUESTS_FILE);
+      const req = requests.find(r => r.id === id);
+      if (!req) return;
+
+      if (newStatus === 'received' && req.status === 'pending') {
+        req.status = 'received';
+        writeJson(REQUESTS_FILE, requests);
+
+        bot.sendMessage(req.userId, `📦 Заявка №${id}\nСтатус: Прийнято в роботу`);
+
+        bot.answerCallbackQuery(q.id);
+      }
+    }
+  } catch {}
+});
