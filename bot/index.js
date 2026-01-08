@@ -11,7 +11,7 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 const STORES_FILE = './stores.json';
 const REQUESTS_FILE = './requests.json';
 
-let awaitingStoreName = {};
+let awaitingAuth = {};
 let awaitingRequestText = {};
 
 /* =========================
@@ -19,9 +19,9 @@ let awaitingRequestText = {};
 ========================= */
 
 function readJson(path) {
+  if (!fs.existsSync(path)) return [];
   try {
-    if (!fs.existsSync(path)) return [];
-    return JSON.parse(fs.readFileSync(path, 'utf8') || '[]');
+    return JSON.parse(fs.readFileSync(path, 'utf8'));
   } catch {
     return [];
   }
@@ -40,11 +40,10 @@ function today() {
 }
 
 function statusText(status) {
-  return {
-    pending: 'Очікує підтвердження',
-    received: 'Прийнято в роботу',
-    processed: 'Виконано'
-  }[status] || status;
+  if (status === 'pending') return 'Очікує підтвердження';
+  if (status === 'received') return 'Прийнято в роботу';
+  if (status === 'processed') return 'Виконано';
+  return status;
 }
 
 /* =========================
@@ -97,15 +96,10 @@ bot.onText(/\/start/, msg => {
 
   const store = getStore(userId);
 
-  if (!store) {
-    bot.sendMessage(userId, '👋 Вітаємо!', startKeyboard);
-    return;
-  }
-
-  if (store.approved) {
+  if (store && store.approved) {
     bot.sendMessage(userId, `✅ Ви авторизовані\n🏪 ${store.storeName}`, storeKeyboard);
   } else {
-    bot.sendMessage(userId, '❌ Авторизацію відхилено.\nМожете подати запит повторно.', startKeyboard);
+    bot.sendMessage(userId, '👋 Вітаємо!', startKeyboard);
   }
 });
 
@@ -119,7 +113,7 @@ bot.on('message', msg => {
   if (!text || text.startsWith('/')) return;
 
   if (text === '📞 Звʼязок з менеджером') {
-    bot.sendMessage(userId, 'Звʼяжіться з менеджером:', {
+    bot.sendMessage(userId, 'Звʼязатися з менеджером:', {
       reply_markup: {
         inline_keyboard: [[
           { text: '✉️ Написати менеджеру', url: `https://t.me/${MANAGER_USERNAME}` }
@@ -130,21 +124,14 @@ bot.on('message', msg => {
   }
 
   if (text === '🔐 Авторизуватись') {
-    awaitingStoreName[userId] = true;
     bot.sendMessage(userId, '🏪 Введіть назву магазину');
     return;
   }
 
-  if (awaitingStoreName[userId]) {
-    delete awaitingStoreName[userId];
+  const store = getStore(userId);
 
-    const stores = readJson(STORES_FILE);
-    const existing = stores.find(s => s.userId === userId);
-
-    if (existing && existing.approved) {
-      bot.sendMessage(userId, '✅ Ви вже авторизовані', storeKeyboard);
-      return;
-    }
+  if (!store && !awaitingAuth[userId]) {
+    awaitingAuth[userId] = text;
 
     bot.sendMessage(
       MANAGER_ID,
@@ -157,22 +144,21 @@ bot.on('message', msg => {
               { text: '❌ Відхилити', callback_data: `auth_reject_${userId}` }
             ],
             [
-              { text: '✉️ Написати користувачу', url: `https://t.me/${msg.from.username || ''}` }
+              { text: '✉️ Написати користувачу', url: `https://t.me/${msg.from.username}` }
             ]
           ]
         }
       }
     );
 
-    stores.push({ userId, storeName: text, approved: false });
-    writeJson(STORES_FILE, stores);
-
     bot.sendMessage(userId, '⏳ Запит на авторизацію надіслано менеджеру');
     return;
   }
 
-  const store = getStore(userId);
-  if (!store || !store.approved) return;
+  if (!store || !store.approved) {
+    bot.sendMessage(userId, '⛔ Доступ відсутній. Ви можете повторити авторизацію.', startKeyboard);
+    return;
+  }
 
   if (text === '➕ Створити заявку') {
     awaitingRequestText[userId] = true;
@@ -181,8 +167,8 @@ bot.on('message', msg => {
   }
 
   if (awaitingRequestText[userId]) {
-    delete awaitingRequestText[userId];
     createRequest(userId, store.storeName, text);
+    delete awaitingRequestText[userId];
     return;
   }
 
@@ -211,21 +197,102 @@ function createRequest(userId, storeName, text) {
   requests.push(req);
   writeJson(REQUESTS_FILE, requests);
 
-  bot.sendMessage(userId, `📨 Заявка №${id} створена`);
+  bot.sendMessage(userId, `📨 Заявка №${id} створена\nСтатус: Очікує підтвердження`);
 
   bot.sendMessage(
     MANAGER_ID,
-    `🆕 Заявка №${id}\n🏪 ${storeName}\n\n${text}`,
+    `🆕 Заявка №${id}\n🏪 ${storeName}\n\n${text}\nСтатус: Очікує підтвердження`,
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '📥 Отримана', callback_data: `status_received_${id}` }],
-          [{ text: '✉️ Написати користувачу', url: `tg://user?id=${userId}` }]
+          [
+            { text: '📥 Отримана', callback_data: `status_received_${id}` }
+          ],
+          [
+            { text: '✉️ Написати користувачу', url: `https://t.me/${userId}` }
+          ]
         ]
       }
     }
   );
 }
+
+/* =========================
+   Manager callbacks
+========================= */
+
+bot.on('callback_query', q => {
+  const data = q.data;
+  const msg = q.message;
+
+  // AUTH
+  if (data.startsWith('auth_')) {
+    const [, action, userIdStr] = data.split('_');
+    const userId = Number(userIdStr);
+    const storeName = awaitingAuth[userId];
+
+    delete awaitingAuth[userId];
+
+    const stores = readJson(STORES_FILE);
+
+    if (action === 'accept') {
+      stores.push({ userId, storeName, approved: true });
+      writeJson(STORES_FILE, stores);
+      bot.sendMessage(userId, '✅ Авторизацію підтверджено', storeKeyboard);
+    } else {
+      bot.sendMessage(userId, '❌ Авторизацію відхилено. Ви можете подати запит повторно.', startKeyboard);
+    }
+
+    bot.editMessageReplyMarkup(
+      { inline_keyboard: [[{ text: '✉️ Написати користувачу', url: `https://t.me/${userId}` }]] },
+      { chat_id: msg.chat.id, message_id: msg.message_id }
+    );
+
+    bot.answerCallbackQuery(q.id);
+    return;
+  }
+
+  // REQUEST STATUS
+  if (data.startsWith('status_')) {
+    const [, status, idStr] = data.split('_');
+    const id = Number(idStr);
+
+    const requests = readJson(REQUESTS_FILE);
+    const req = requests.find(r => r.id === id);
+    if (!req) return;
+
+    if (status === 'received' && req.status === 'pending') {
+      req.status = 'received';
+      writeJson(REQUESTS_FILE, requests);
+
+      bot.sendMessage(req.userId, `📦 Заявка №${id}\nСтатус: Прийнято в роботу`);
+
+      bot.editMessageReplyMarkup(
+        {
+          inline_keyboard: [
+            [{ text: '⚙️ Оброблена', callback_data: `status_processed_${id}` }],
+            [{ text: '✉️ Написати користувачу', url: `https://t.me/${req.userId}` }]
+          ]
+        },
+        { chat_id: msg.chat.id, message_id: msg.message_id }
+      );
+    }
+
+    if (status === 'processed' && req.status === 'received') {
+      req.status = 'processed';
+      writeJson(REQUESTS_FILE, requests);
+
+      bot.sendMessage(req.userId, `✅ Заявка №${id}\nСтатус: Виконано`);
+
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [[{ text: '✉️ Написати користувачу', url: `https://t.me/${req.userId}` }]] },
+        { chat_id: msg.chat.id, message_id: msg.message_id }
+      );
+    }
+
+    bot.answerCallbackQuery(q.id);
+  }
+});
 
 /* =========================
    Views
@@ -239,72 +306,9 @@ function showMyRequests(userId) {
   }
 
   requests.forEach(r => {
-    bot.sendMessage(userId, `№${r.id}\nСтатус: ${statusText(r.status)}\n${r.text}`);
-  });
-}
-
-/* =========================
-   Callbacks
-========================= */
-
-bot.on('callback_query', q => {
-  const data = q.data;
-  const msg = q.message;
-
-  if (data.startsWith('auth_')) {
-    const [, action, userIdStr] = data.split('_');
-    const userId = Number(userIdStr);
-
-    const stores = readJson(STORES_FILE);
-    const store = stores.find(s => s.userId === userId);
-    if (!store) return;
-
-    store.approved = action === 'accept';
-    writeJson(STORES_FILE, stores);
-
     bot.sendMessage(
       userId,
-      store.approved
-        ? '✅ Авторизацію підтверджено'
-        : '❌ Авторизацію відхилено. Можете подати запит повторно.',
-      store.approved ? storeKeyboard : startKeyboard
+      `№${r.id}\nСтатус: ${statusText(r.status)}\n${r.text}`
     );
-
-    bot.editMessageReplyMarkup(
-      {
-        inline_keyboard: [
-          [{ text: '✉️ Написати користувачу', url: `tg://user?id=${userId}` }]
-        ]
-      },
-      { chat_id: msg.chat.id, message_id: msg.message_id }
-    );
-
-    bot.answerCallbackQuery(q.id);
-    return;
-  }
-
-  if (data.startsWith('status_')) {
-    const [, status, idStr] = data.split('_');
-    const id = Number(idStr);
-
-    const requests = readJson(REQUESTS_FILE);
-    const req = requests.find(r => r.id === id);
-    if (!req) return;
-
-    req.status = status === 'received' ? 'received' : 'processed';
-    writeJson(REQUESTS_FILE, requests);
-
-    bot.sendMessage(req.userId, `📦 Заявка №${id}\nСтатус: ${statusText(req.status)}`);
-
-    bot.editMessageReplyMarkup(
-      {
-        inline_keyboard: [
-          [{ text: '✉️ Написати користувачу', url: `tg://user?id=${req.userId}` }]
-        ]
-      },
-      { chat_id: msg.chat.id, message_id: msg.message_id }
-    );
-
-    bot.answerCallbackQuery(q.id);
-  }
-});
+  });
+}
